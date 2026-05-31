@@ -19,7 +19,7 @@
 ## 📦 Встановлення та розгортання проєкту
 
 1. Клонуйте репозиторій із вихідним кодом на свій локальний комп'ютер:
-   `git clone https://https://github.com/f0rsi4ch/lab2.7`
+   `git clone https://github.com/your-username/ecommerce-shopping-cart.git`
    `cd ecommerce-shopping-cart`
 
 2. Перевірте наявність або створіть базовий конфігураційний файл `config.json` у кореневій директорії проєкту (поруч із `main.py`):
