@@ -75,7 +75,7 @@ class DigitalProduct(Product):
         self.size = size
 
     def get_final_price(self):
-        return self.price * 0.9  # 10% discount for digital items
+        return self.price * 0.9  
 
 
 class PhysicalProduct(Product):
@@ -174,16 +174,30 @@ class ShoppingCart:
         except FileNotFoundError:
             print("[System] Backup file not found. Starting with an empty cart.")
 
-    def export_sales_report(self, filepath="sales_report.csv"):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        full_path = os.path.join(current_dir, filepath)
-        with open(full_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f, delimiter=',')
-            writer.writerow(["Product Name", "Product Type", "Quantity", "Base Price", "Final Price"])
-            for prod, qty in self.items:
-                prod_type = "Digital" if isinstance(prod, DigitalProduct) else "Physical"
-                writer.writerow([prod.name, prod_type, qty, prod.price, prod.get_final_price()])
-        print(f"[System] Sales report exported to CSV file: {full_path}")
+    def export_sales_report(self, filepath: str = "sales_report.csv") -> None:
+        """Exporting the structured order table with a ';' delimiter"""
+        if not self.items:
+            print("[Analytics] Shopping cart is empty.")
+            return
+
+        try:
+            with open(filepath, "w", newline="", encoding="utf-8-sig") as file:
+                writer = csv.writer(file, delimiter=";")  
+                
+                writer.writerow(["Product Name", "Product Type", "Quantity", "Base Price", "Final Price"])
+                
+                for product, qty in self.items:
+                    prod_type = "Digital" if hasattr(product, "size") else "Physical"
+                    writer.writerow([
+                        product.name, 
+                        prod_type, 
+                        qty, 
+                        f"{product.price:.2f}", 
+                        f"{product.get_final_price():.2f}"
+                    ])
+            print("[Reporting] Data successfully exported.")
+        except IOError as e:
+            print(f"[Error]: {e}")
 
 
 class Checkout:
@@ -211,7 +225,7 @@ class Checkout:
             for p, q in self.cart.items:
                 p.stock += q
             print(f"[Checkout] Payment failed ({exc_val}). Stock holdings restored.")
-            return True  # Suppress exception to keep the CLI interactive menu alive
+            return True  
         else:
             print("[Checkout] Payment success! Order processing completed.")
         return False
