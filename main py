@@ -51,7 +51,7 @@ class Product:
         self._data.stock = value
 
     def __str__(self):
-        return f"Product: {self.name} | Price: {self.price} USD | Stock: {self.stock} pcs"
+        return f"{self.name} | Base Price: {self.price:.2f} USD | Stock: {self.stock} pcs"
 
     def __repr__(self):
         return f"Product(name='{self.name}', price={self.price})"
@@ -63,7 +63,7 @@ class Product:
 
     def __lt__(self, other):
         if not isinstance(other, Product): return NotImplemented
-        return self.price < other.price
+        return self.get_final_price() < other.get_final_price()
 
     def get_final_price(self):
         return self.price
@@ -102,6 +102,7 @@ class TaxCalculator:
 
 
 class PhysicalProductIterator:
+    """Custom iterator for FILTERING only physical products in the collection"""
     def __init__(self, items_list):
         self.items_list = items_list
         self.index = 0
@@ -118,18 +119,41 @@ class PhysicalProductIterator:
         raise StopIteration
 
 
+class SecureEdit:
+    def __init__(self, shopping_cart, index: int):
+        self.cart = shopping_cart
+        self.index = index
+        self.backup_product = None
+        self.backup_qty = None
+
+    def __enter__(self):
+        prod, qty = self.cart.items[self.index]
+        self.backup_product = prod
+        self.backup_qty = qty
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.cart.items[self.index] = (self.backup_product, self.backup_qty)
+            print(f"\n[Rollback] Transaction cancelled due to error: {exc_val}")
+            print("[System] Initial data state successfully restored by context manager.")
+            return True  
+        print("\n[System] Editing transaction successfully completed and committed.")
+        return False
+
+
 class ShoppingCart:
     def __init__(self):
         self.items = []
         self.tax_calculator = TaxCalculator(0.20)
-        self.config = {"store_name": "Default Store", "max_items_limit": 999}
+        self.config = {"store_name": "VNTU Tech Store", "max_items_limit": 50}
 
     def add(self, product: Product, qty: int):
-        max_limit = self.config.get("max_items_limit", 999)
+        max_limit = self.config.get("max_items_limit", 50)
         current_total = sum(q for _, q in self.items)
         
         if current_total + qty > max_limit:
-            print(f"[Warning] System restriction! Cannot add {qty} items. Cart limit: {max_limit}")
+            print(f"[Warning] Restriction! Cannot add items. Cart limit of {max_limit} reached.")
             return
 
         if qty > product.stock:
@@ -140,7 +164,10 @@ class ShoppingCart:
         return len(self.items)
 
     def __iter__(self):
-        return iter(sorted(self.items, key=lambda x: x[0].price))
+        return iter(self.items)
+
+    def __getitem__(self, index):
+        return self.items[index]
 
     def get_physical_products(self):
         return PhysicalProductIterator(self.items)
@@ -152,8 +179,6 @@ class ShoppingCart:
             with open(full_path, 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
             print(f"[System] Configuration from JSON loaded successfully.")
-            print(f" -> Store Name: {self.config.get('store_name')}")
-            print(f" -> System Cart Limit: {self.config.get('max_items_limit')} items")
         except FileNotFoundError:
             print("[Warning] config.json not found. Using default internal settings.")
 
@@ -162,7 +187,7 @@ class ShoppingCart:
         full_path = os.path.join(current_dir, filepath)
         with open(full_path, 'wb') as f:
             pickle.dump(self.items, f)
-        print("[System] Full cart state serialized to Pickle (Auto-save executed).")
+        print("[System] Full cart state serialized to Pickle.")
 
     def load_system_state(self, filepath="system_backup.pkl"):
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -175,17 +200,13 @@ class ShoppingCart:
             print("[System] Backup file not found. Starting with an empty cart.")
 
     def export_sales_report(self, filepath: str = "sales_report.csv") -> None:
-        """Exporting the structured order table with a ';' delimiter"""
         if not self.items:
             print("[Analytics] Shopping cart is empty.")
             return
-
         try:
             with open(filepath, "w", newline="", encoding="utf-8-sig") as file:
                 writer = csv.writer(file, delimiter=";")  
-                
                 writer.writerow(["Product Name", "Product Type", "Quantity", "Base Price", "Final Price"])
-                
                 for product, qty in self.items:
                     prod_type = "Digital" if hasattr(product, "size") else "Physical"
                     writer.writerow([
@@ -195,7 +216,7 @@ class ShoppingCart:
                         f"{product.price:.2f}", 
                         f"{product.get_final_price():.2f}"
                     ])
-            print("[Reporting] Data successfully exported.")
+            print("[Reporting] Report successfully exported to CSV.")
         except IOError as e:
             print(f"[Error]: {e}")
 
@@ -209,7 +230,7 @@ class Checkout:
         self.start_time = time.time()
         for p, q in self.cart.items:
             if p.stock < q:
-                raise ValueError(f"Product '{p.name}' ran out of stock during checkout transaction!")
+                raise ValueError(f"Product '{p.name}' ran out of stock during transaction!")
             p.stock -= q
         print("[Checkout] Products successfully reserved in stock.")
         return self
@@ -224,36 +245,51 @@ class Checkout:
         if exc_type:
             for p, q in self.cart.items:
                 p.stock += q
-            print(f"[Checkout] Payment failed ({exc_val}). Stock holdings restored.")
+            print(f"[Checkout] Payment failed ({exc_val}). Stock restored.")
             return True  
         else:
-            print("[Checkout] Payment success! Order processing completed.")
+            print("[Checkout] Order processing completed successfully.")
         return False
 
 
 def show_menu():
-    print("\n" + "="*45)
-    print("         E-COMMERCE MAIN MENU")
-    print("="*45)
-    print("1. Display current shopping cart items")
+    print("\n" + "="*60)
+    print("      E-COMMERCE MAIN MENU (VNTU TECH-SHOP)")
+    print("="*60)
+    print("1. Display current shopping cart items (Insertion order)")
     print("2. Add new product to cart")
-    print("3. Process order checkout (Checkout)")
-    print("4. Save system state manually")
-    print("5. Export tabular report to CSV")
+    print("3. [SORTING] Display products sorted by price ")
+    print("4. [FILTERING] Display ONLY physical products (iterator)")
+    print("5. [SEARCH & EDIT] Find product and modify quantity'")
+    print("6. Process order checkout")
+    print("7. Export tabular report to CSV")
+    print("8. Save system state manually (Pickle)")
     print("0. Exit application")
-    print("="*45)
+    print("="*60)
 
 
-# --- CLI ENTRY POINT ---
 if __name__ == "__main__":
     cart = ShoppingCart()
-    
-    # System Initialization
     cart.load_config()
     cart.load_system_state()
     
-    print("\nWelcome to E-commerce Shopping Cart System v1.0")
-    
+    # [NEW] Pre-populate cart with demo mock data if it is empty to make testing search/filter/sort instant
+    if not cart.items:
+        print("[System] No backup data found. Pre-loading demo products for instant testing...")
+        try:
+            demo_p1 = PhysicalProduct(ProductData("Gaming Laptop", 1200.0, 10), weight=2.4, shipping_cost=25.0)
+            demo_p2 = DigitalProduct(ProductData("Advanced Python eBook", 45.0, 100), size=14.2)
+            demo_p3 = PhysicalProduct(ProductData("Smartphone Ultra", 850.0, 15), weight=0.2, shipping_cost=15.0)
+            demo_p4 = DigitalProduct(ProductData("AI Prompt Engineering Guide", 19.99, 200), size=5.5)
+            
+            cart.add(demo_p1, 1)  # Index 0
+            cart.add(demo_p2, 2)  # Index 1
+            cart.add(demo_p3, 1)  # Index 2
+            cart.add(demo_p4, 1)  # Index 3
+            print("[System] Demo dataset successfully loaded. Indices [0] to [3] are ready to use!")
+        except Exception as demo_err:
+            print(f"[Warning] Failed to generate demo products: {demo_err}")
+
     while True:
         show_menu()
         try:
@@ -264,22 +300,21 @@ if __name__ == "__main__":
                     if not cart.items:
                         print("[Info] Your shopping cart is empty.")
                     else:
-                        print("\n--- SHOPPING CART ITEMS (Sorted by Price) ---")
-                        for idx, (prod, qty) in enumerate(cart, 1):
-                            total_item_price = prod.get_final_price() * qty
-                            print(f"{idx}. {prod} | Ordered: {qty} pcs | Total Price: {total_item_price} USD")
+                        print("\n--- CURRENT SHOPPING CART ITEMS ---")
+                        for idx, (prod, qty) in enumerate(cart.items):
+                            print(f"Index [{idx}] -> {prod} | Ordered: {qty} pcs")
                 
                 case "2":
                     print("\nSelect product type: 1 - Digital, 2 - Physical")
                     p_type = input("Your choice: ").strip()
                     if p_type not in ["1", "2"]:
-                        raise ValueError("Invalid product type selection. Must be 1 or 2.")
+                        raise ValueError("Invalid product type selection.")
                     
                     name = input("Product name: ").strip()
                     if not name:
                         raise ValueError("Product name cannot be empty.")
                         
-                    price = float(input("Base product price (USD): "))
+                    price = float(input("Base price (USD): "))
                     stock = int(input("Available stock quantity: "))
                     data = ProductData(name, price, stock)
                     
@@ -293,42 +328,91 @@ if __name__ == "__main__":
                         
                     qty = int(input("How many items to add to cart?: "))
                     cart.add(product, qty)
-                    print(f"[Success] Product '{name}' added to your cart.")
+                    print(f"[Success] Product '{name}' added to cart.")
                 
                 case "3":
+                    print("\n--- [OPTION] SORTING PRODUCTS BY FINAL PRICE (calls __lt__) ---")
                     if not cart.items:
-                        print("[Warning] Cannot checkout an empty shopping cart.")
+                        print("[Info] Shopping cart is empty, no data to sort.")
+                    else:
+                        sorted_items = sorted(cart.items, key=lambda x: x[0])
+                        print("Sorting results (ascending order):")
+                        for idx, (prod, qty) in enumerate(sorted_items, 1):
+                            print(f" {idx}. {prod.name} | Final Price: {prod.get_final_price():.2f} USD")
+                
+                case "4":
+                    print("\n--- [OPTION] FILTERING (Using custom PhysicalProductIterator) ---")
+                    if not cart.items:
+                        print("[Info] Shopping cart is empty.")
+                    else:
+                        print("Tangible products requiring shipping delivery:")
+                        physical_iterator = cart.get_physical_products()
+                        count = 0
+                        for prod, qty in physical_iterator:
+                            print(f" 📦 Physical Product: {prod.name} | Shipping: {prod.shipping_cost} USD | Qty: {qty} pcs")
+                            count += 1
+                        if count == 0:
+                            print("[Info] No physical products found in the cart.")
+
+                case "5":
+                    print("\n--- [OPTION] SEARCH & TRANSACTIONAL DATA EDITING ---")
+                    if not cart.items:
+                        print("[Warning] Shopping cart is empty. Please add products first.")
                         continue
                         
-                    cart_total = sum(p.get_final_price() * q for p, q in cart.items)
-                    print(f"\nTotal amount due: {cart_total} USD")
-                    print("Available payment methods:")
-                    for method in PaymentMethod:
-                        print(f" - {method.value}")
+                    # 1. SEARCH STAGE (calls __getitem__)
+                    idx_input = input(f"Enter product index for SEARCH (0 to {len(cart.items)-1}): ").strip()
+                    if not idx_input.isdigit():
+                        raise ValueError("Index must be a positive integer!")
+                    
+                    search_idx = int(idx_input)
+                    prod, current_qty = cart[search_idx] # Calls __getitem__
+                    print(f"\n[SEARCH RESULT] Record found:\n -> Product: {prod.name}\n -> Ordered Quantity: {current_qty} pcs")
+                    
+                    # 2. EDITING STAGE under SecureEdit context manager protection
+                    ans = input("\nDo you want to change the quantity of this product? (y/n): ").strip().lower()
+                    if ans in ['y', 'yes']:
+                        new_qty = int(input("Enter NEW quantity: "))
                         
+                        with SecureEdit(cart, search_idx):
+                            if new_qty > prod.stock:
+                                raise ValueError(f"Exceeded stock limit! Only {prod.stock} pcs available.")
+                            if new_qty <= 0:
+                                raise ValueError("Quantity must be greater than zero.")
+                            
+                            cart.items[search_idx] = (prod, new_qty)
+                    else:
+                        print("[Info] Editing cancelled.")
+
+                case "6":
+                    if not cart.items:
+                        print("[Warning] Shopping cart is empty.")
+                        continue
+                    cart_total = sum(p.get_final_price() * q for p, q in cart.items)
+                    print(f"\nTotal amount due: {cart_total:.2f} USD")
+                    
                     with Checkout(cart):
                         confirm = input("Type 'pay' to confirm your payment transaction: ").strip()
                         if confirm.lower() != "pay":
                             raise Exception("Payment cancelled or rejected by user request.")
                 
-                case "4":
+                case "7":
+                    cart.export_sales_report()
+                
+                case "8":
                     cart.save_system_state()
                 
-                case "5":
-                    cart.export_sales_report()
-                    
                 case "0":
                     print("\nShutting down system. Executing final auto-save...")
                     cart.save_system_state()
-                    print("Thank you for using our service. Goodbye!")
                     sys.exit(0)
                     
                 case _:
-                    print("[Warning] Unknown option! Please select a valid number from 0 to 5.")
+                    print("[Warning] Unknown option! Please select a valid number.")
                     
         except ValueError as e:
             print(f"\n⚠️ [Data Input Error]: {e}")
-            print("Please try again and ensure correct numeric formats are provided.")
+        except IndexError:
+            print(f"\n⚠️ [Search Error]: Product with the specified index does not exist!")
         except Exception as e:
             print(f"\n❌ [Runtime Interface Error]: {e}")
-            print("System stabilized. Returning to safety main menu loop.")
